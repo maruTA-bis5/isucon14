@@ -211,7 +211,11 @@ func startNotificationLoopForChairs() {
 				rideIDs[i] = status.RideID
 			}
 			rides := []Ride{}
-			ridesQuery, params, _ := sqlx.In("SELECT * FROM rides WHERE id IN (?)", rideIDs)
+			ridesQuery, params, err := sqlx.In("SELECT * FROM rides WHERE id IN (?)", rideIDs)
+			if err != nil {
+				slog.Error("Error", err)
+				continue
+			}
 			if err := db.SelectContext(context.Background(), &rides, ridesQuery, params...); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
@@ -229,7 +233,11 @@ func startNotificationLoopForChairs() {
 			for i, ride := range rides {
 				userIDs[i] = ride.UserID
 			}
-			usersQuery, params, _ := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
+			usersQuery, params, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
+			if err != nil {
+				slog.Error("Error", err)
+				continue
+			}
 			if err := db.SelectContext(context.Background(), &users, usersQuery, params...); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
@@ -256,8 +264,12 @@ func startNotificationLoopForChairs() {
 				for i, status := range statuses {
 					statusIds[i] = status.ID
 				}
-				upQuery, params, _ := sqlx.In("UPDATE ride_statuses SET chair_sent_at = CURRENT_TIMESTAMP(6) WHERE id IN (?)", statusIds)
-				_, err := db.ExecContext(context.Background(), upQuery, params...)
+				upQuery, params, err := sqlx.In("UPDATE ride_statuses SET chair_sent_at = CURRENT_TIMESTAMP(6) WHERE id IN (?)", statusIds)
+				if err != nil {
+					slog.Error("Error", err)
+					continue
+				}
+				_, err = db.ExecContext(context.Background(), upQuery, params...)
 				if err != nil {
 					slog.Error("Error", err)
 					continue
