@@ -242,10 +242,11 @@ func startNotificationLoopForChairs() {
 				userByID[user.ID] = &user
 			}
 
+			sseMutex.RLock()
 			statusByChair := map[string][]RideStatus{}
 			for _, status := range statuses {
 				ride := rideByID[status.RideID]
-				if ride == nil || !ride.ChairID.Valid {
+				if ride == nil || !ride.ChairID.Valid || sseServers[ride.ChairID.String] == nil {
 					continue
 				}
 				statusByChair[ride.ChairID.String] = append(statusByChair[ride.ChairID.String], status)
@@ -266,11 +267,10 @@ func startNotificationLoopForChairs() {
 					if user == nil {
 						continue
 					}
-					sseMutex.RLock()
 					sendChairRideStatusEvent(rideByID[status.RideID], user, status.Status, sseServers[rideByID[status.RideID].ChairID.String])
-					sseMutex.RUnlock()
 				}
 			}
+			sseMutex.RUnlock()
 		}
 	}()
 }
