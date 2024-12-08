@@ -391,7 +391,7 @@ func sendLatestRideStatus(user *User, ride *Ride, status string) {
 		}
 		sseMutex.RLock()
 		defer sseMutex.RUnlock()
-		sseServers[ride.ChairID.String](fmt.Sprintf("data: %s\n", string(payload)))
+		sseServers[ride.ChairID.String](fmt.Sprintf("data: %s\n\n", string(payload)))
 	}()
 }
 
