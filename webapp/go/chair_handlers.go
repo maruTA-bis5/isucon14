@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oklog/ulid/v2"
@@ -194,6 +195,85 @@ type chairGetNotificationResponseData struct {
 var sseServers = make(map[string]func(string))
 var sseMutex sync.RWMutex
 
+func startNotificationLoopForChairs() {
+	go func() {
+		for range time.Tick(1 * time.Second) {
+			statuses := []RideStatus{}
+			if err := db.SelectContext(context.Background(), &statuses, "SELECT * FROM ride_statuses WHERE chair_sent_at IS NULL ORDER BY created_at ASC"); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				slog.Error("Error", err)
+				continue
+			}
+			rideIDs := make([]string, len(statuses))
+			for i, status := range statuses {
+				rideIDs[i] = status.RideID
+			}
+			rides := []Ride{}
+			ridesQuery, params, _ := sqlx.In("SELECT * FROM rides WHERE id IN (?)", rideIDs)
+			if err := db.SelectContext(context.Background(), &rides, ridesQuery, params...); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				slog.Error("Error", err)
+				continue
+			}
+			rideByID := map[string]*Ride{}
+			for _, ride := range rides {
+				rideByID[ride.ID] = &ride
+			}
+
+			users := []User{}
+			userIDs := make([]string, len(rides))
+			for i, ride := range rides {
+				userIDs[i] = ride.UserID
+			}
+			usersQuery, params, _ := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
+			if err := db.SelectContext(context.Background(), &users, usersQuery, params...); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				slog.Error("Error", err)
+				continue
+			}
+			userByID := map[string]*User{}
+			for _, user := range users {
+				userByID[user.ID] = &user
+			}
+
+			statusByChair := map[string][]RideStatus{}
+			for _, status := range statuses {
+				ride := rideByID[status.RideID]
+				if ride == nil || !ride.ChairID.Valid {
+					continue
+				}
+				statusByChair[ride.ChairID.String] = append(statusByChair[ride.ChairID.String], status)
+			}
+			for _, statuses := range statusByChair {
+				statusIds := make([]string, len(statuses))
+				for i, status := range statuses {
+					statusIds[i] = status.ID
+				}
+				upQuery, params, _ := sqlx.In("UPDATE ride_statuses SET chair_sent_at = CURRENT_TIMESTAMP(6) WHERE id IN (?)", statusIds)
+				_, err := db.ExecContext(context.Background(), upQuery, params...)
+				if err != nil {
+					slog.Error("Error", err)
+					continue
+				}
+				for _, status := range statuses {
+					user := userByID[rideByID[status.RideID].UserID]
+					if user == nil {
+						continue
+					}
+					sseMutex.RLock()
+					sendChairRideStatusEvent(rideByID[status.RideID], user, status.Status, sseServers[rideByID[status.RideID].ChairID.String])
+					sseMutex.RUnlock()
+				}
+			}
+		}
+	}()
+}
 func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	chair := ctx.Value("chair").(*Chair)
@@ -229,7 +309,7 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sseServers[chair.ID] = sendMessage
-	sendLatestRideStatusForChair(chair)
+	// sendLatestRideStatusForChair(chair)
 
 	// // 定期的にデータを送信
 	// ticker := time.NewTicker(2 * time.Second)
@@ -393,6 +473,32 @@ func sendLatestRideStatus(user *User, ride *Ride, status string) {
 		defer sseMutex.RUnlock()
 		sseServers[ride.ChairID.String](fmt.Sprintf("data: %s\n\n", string(payload)))
 	}()
+}
+
+func sendChairRideStatusEvent(ride *Ride, user *User, status string, sseServer func(string)) {
+	payload, err := json.Marshal(
+		&chairGetNotificationResponseData{
+			RideID: ride.ID,
+			User: simpleUser{
+				ID:   user.ID,
+				Name: fmt.Sprintf("%s %s", user.Firstname, user.Lastname),
+			},
+			PickupCoordinate: Coordinate{
+				Latitude:  ride.PickupLatitude,
+				Longitude: ride.PickupLongitude,
+			},
+			DestinationCoordinate: Coordinate{
+				Latitude:  ride.DestinationLatitude,
+				Longitude: ride.DestinationLongitude,
+			},
+			Status: status,
+		},
+	)
+	if err != nil {
+		slog.Error("Error", err)
+		return
+	}
+	sseServer(fmt.Sprintf("data: %s\n\n", string(payload)))
 }
 
 type postChairRidesRideIDStatusRequest struct {

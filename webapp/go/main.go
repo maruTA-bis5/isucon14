@@ -109,6 +109,8 @@ func setup() http.Handler {
 		mux.HandleFunc("GET /api/internal/matching", internalGetMatching)
 	}
 
+	startNotificationLoopForChairs()
+
 	return mux
 }
 
