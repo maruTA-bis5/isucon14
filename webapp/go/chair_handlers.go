@@ -366,31 +366,33 @@ func sendLatestRideStatus(user *User, ride *Ride, status string) {
 	// 	return
 	// }
 
-	payload, err := json.Marshal(
-		&chairGetNotificationResponseData{
-			RideID: ride.ID,
-			User: simpleUser{
-				ID:   user.ID,
-				Name: fmt.Sprintf("%s %s", user.Firstname, user.Lastname),
+	go func() {
+		payload, err := json.Marshal(
+			&chairGetNotificationResponseData{
+				RideID: ride.ID,
+				User: simpleUser{
+					ID:   user.ID,
+					Name: fmt.Sprintf("%s %s", user.Firstname, user.Lastname),
+				},
+				PickupCoordinate: Coordinate{
+					Latitude:  ride.PickupLatitude,
+					Longitude: ride.PickupLongitude,
+				},
+				DestinationCoordinate: Coordinate{
+					Latitude:  ride.DestinationLatitude,
+					Longitude: ride.DestinationLongitude,
+				},
+				Status: status,
 			},
-			PickupCoordinate: Coordinate{
-				Latitude:  ride.PickupLatitude,
-				Longitude: ride.PickupLongitude,
-			},
-			DestinationCoordinate: Coordinate{
-				Latitude:  ride.DestinationLatitude,
-				Longitude: ride.DestinationLongitude,
-			},
-			Status: status,
-		},
-	)
-	if err != nil {
-		slog.Error("Error", err)
-		return
-	}
-	sseMutex.RLock()
-	defer sseMutex.RUnlock()
-	sseServers[ride.ChairID.String](fmt.Sprintf("data: %s\n", string(payload)))
+		)
+		if err != nil {
+			slog.Error("Error", err)
+			return
+		}
+		sseMutex.RLock()
+		defer sseMutex.RUnlock()
+		sseServers[ride.ChairID.String](fmt.Sprintf("data: %s\n", string(payload)))
+	}()
 }
 
 type postChairRidesRideIDStatusRequest struct {
@@ -439,6 +441,7 @@ func chairPostRideStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		sendLatestRideStatusForRide(ctx, tx, ride, req.Status)
 	// After Picking up user
 	case "CARRYING":
 		status, err := getLatestRideStatus(ctx, tx, ride.ID)
@@ -454,11 +457,10 @@ func chairPostRideStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		sendLatestRideStatusForRide(ctx, tx, ride, req.Status)
 	default:
 		writeError(w, http.StatusBadRequest, errors.New("invalid status"))
 	}
-
-	sendLatestRideStatusForRide(ctx, tx, ride, req.Status)
 
 	if err := tx.Commit(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
