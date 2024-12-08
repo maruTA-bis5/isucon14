@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/oklog/ulid/v2"
@@ -184,13 +187,65 @@ type chairGetNotificationResponseData struct {
 	Status                string     `json:"status"`
 }
 
+var sseServers = make(map[string]func(string))
+
 func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	chair := ctx.Value("chair").(*Chair)
 
+	// 	if sseServers[chair.ID] == nil {
+	// 		sseServers[chair.ID] = &sse.Server{
+	// 			Provider: &sse.Joe{
+	// 				ReplayProvider: &sse.ValidReplayProvider{TTL: 30},
+	// 			},
+	// 			OnSession: func(s *sse.Session) (sse.Subscription, bool) {
+	// 				return sendLatestRideStatus(chair, s)
+	// 			},
+	// 		}
+	// 	}
+
+	// }
+
+	// func sseHandler(w http.ResponseWriter, r *http.Request) {
+	// 必要なヘッダーを設定
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// クライアントへのメッセージ送信関数
+	sendMessage := func(data string) {
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		// 即時に送信するためにフラッシュ
+		flusher, ok := w.(http.Flusher)
+		if ok {
+			flusher.Flush()
+		}
+	}
+	sseServers[chair.ID] = sendMessage
+	sendLatestRideStatus(chair)
+
+	// // 定期的にデータを送信
+	// ticker := time.NewTicker(2 * time.Second)
+	// defer ticker.Stop()
+
+	// for {
+	//     select {
+	//     case <-ticker.C:
+	//         sendMessage(fmt.Sprintf("Current time: %s", time.Now().Format(time.RFC3339)))
+	//     case <-r.Context().Done():
+	//         // クライアントが切断された場合
+	//         fmt.Println("Client disconnected")
+	//         return
+	//     }
+	// }
+}
+
+func sendLatestRideStatus(chair *Chair) {
+	ctx := context.Background()
 	tx, err := db.Beginx()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		// writeError(w, http.StatusInternalServerError, err)
+		slog.Error("Error", err)
 		return
 	}
 	defer tx.Rollback()
@@ -200,12 +255,13 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
-				RetryAfterMs: 30,
-			})
+			// writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
+			// 	RetryAfterMs: 30,
+			// })
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err)
+		// writeError(w, http.StatusInternalServerError, err)
+		slog.Error("Error", err)
 		return
 	}
 
@@ -213,11 +269,13 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, sql.ErrNoRows) {
 			status, err = getLatestRideStatus(ctx, tx, ride.ID)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err)
+				// writeError(w, http.StatusInternalServerError, err)
+				slog.Error("Error", err)
 				return
 			}
 		} else {
-			writeError(w, http.StatusInternalServerError, err)
+			// writeError(w, http.StatusInternalServerError, err)
+			slog.Error("Error", err)
 			return
 		}
 	} else {
@@ -227,25 +285,28 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	user := &User{}
 	err = tx.GetContext(ctx, user, "SELECT * FROM users WHERE id = ? FOR SHARE", ride.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		// writeError(w, http.StatusInternalServerError, err)
+		slog.Error("Error", err)
 		return
 	}
 
 	if yetSentRideStatus.ID != "" {
 		_, err := tx.ExecContext(ctx, `UPDATE ride_statuses SET chair_sent_at = CURRENT_TIMESTAMP(6) WHERE id = ?`, yetSentRideStatus.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			// writeError(w, http.StatusInternalServerError, err)
+			slog.Error("Error", err)
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		// writeError(w, http.StatusInternalServerError, err)
+		slog.Error("Error", err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, &chairGetNotificationResponse{
-		Data: &chairGetNotificationResponseData{
+	payload, err := json.Marshal(
+		&chairGetNotificationResponseData{
 			RideID: ride.ID,
 			User: simpleUser{
 				ID:   user.ID,
@@ -261,8 +322,12 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 			},
 			Status: status,
 		},
-		RetryAfterMs: 30,
-	})
+	)
+	if err != nil {
+		slog.Error("Error", err)
+		return
+	}
+	sseServers[chair.ID](string(payload))
 }
 
 type postChairRidesRideIDStatusRequest struct {
