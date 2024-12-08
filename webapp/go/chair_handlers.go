@@ -283,7 +283,7 @@ func sendLatestRideStatusForChair(chair *Chair) {
 		if errors.Is(err, sql.ErrNoRows) {
 			sseMutex.Lock()
 			defer sseMutex.Unlock()
-			sseServers[chair.ID]("data: {}\n")
+			sseServers[chair.ID]("data: null\n\n")
 			return
 		}
 		slog.Error("Error", err)
