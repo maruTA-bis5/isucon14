@@ -133,7 +133,6 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ride := &Ride{}
-	var rideStatusCode string
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE chair_id = ? ORDER BY updated_at DESC LIMIT 1`, chair.ID); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusInternalServerError, err)
@@ -145,14 +144,13 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		rideStatusCode = status
 		if status != "COMPLETED" && status != "CANCELED" {
 			if req.Latitude == ride.PickupLatitude && req.Longitude == ride.PickupLongitude && status == "ENROUTE" {
 				if _, err := tx.ExecContext(ctx, "INSERT INTO ride_statuses (id, ride_id, status) VALUES (?, ?, ?)", ulid.Make().String(), ride.ID, "PICKUP"); err != nil {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
-				rideStatusCode = "PICKUP"
+				sendLatestRideStatusForRide(ctx, tx, ride, "PICKUP")
 			}
 
 			if req.Latitude == ride.DestinationLatitude && req.Longitude == ride.DestinationLongitude && status == "CARRYING" {
@@ -160,12 +158,10 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
+				sendLatestRideStatusForRide(ctx, tx, ride, "ARRIVED")
 			}
-			rideStatusCode = "ARRIVED"
 		}
 	}
-
-	sendLatestRideStatusForRide(ctx, tx, ride, rideStatusCode)
 
 	if err := tx.Commit(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
