@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/oklog/ulid/v2"
 )
@@ -188,6 +189,7 @@ type chairGetNotificationResponseData struct {
 }
 
 var sseServers = make(map[string]func(string))
+var sseMutex sync.RWMutex
 
 func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -212,6 +214,8 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	sseMutex.Lock()
+	defer sseMutex.Unlock()
 	// クライアントへのメッセージ送信関数
 	sendMessage := func(data string) {
 		fmt.Fprintf(w, "data: %s\n\n", data)
@@ -327,6 +331,8 @@ func sendLatestRideStatus(chair *Chair) {
 		slog.Error("Error", err)
 		return
 	}
+	sseMutex.RLock()
+	defer sseMutex.RUnlock()
 	sseServers[chair.ID](fmt.Sprintf("data: %s\n", string(payload)))
 }
 
