@@ -138,7 +138,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := db.ExecContext(ctx, "ALTER TABLE chair_locations ADD COLUMN distance INTEGER"); err != nil {
+	if _, err := db.ExecContext(ctx, "ALTER TABLE chair_locations ADD COLUMN distance INTEGER DEFAULT 0"); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
