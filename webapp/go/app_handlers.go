@@ -432,6 +432,7 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tx, _ = db.Beginx()
 	sendLatestRideStatusForRide(ctx, tx, &ride, "MATCHING")
 
 	writeJSON(w, http.StatusAccepted, &appPostRidesResponse{
