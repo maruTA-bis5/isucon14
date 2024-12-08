@@ -327,7 +327,7 @@ func sendLatestRideStatus(chair *Chair) {
 		slog.Error("Error", err)
 		return
 	}
-	sseServers[chair.ID](string(payload))
+	sseServers[chair.ID](fmt.Sprintf("data: %s\n", string(payload)))
 }
 
 type postChairRidesRideIDStatusRequest struct {
