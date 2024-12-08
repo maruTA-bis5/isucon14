@@ -139,6 +139,35 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := db.ExecContext(ctx, "ALTER TABLE chair_locations ADD COLUMN distance INTEGER"); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	locations := []*ChairLocation{}
+	if err := db.SelectContext(ctx, locations, "SELECT * FROM chair_locations ORDER BY chair_id, created_at"); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	var lastChairID string
+	var lastLatitude, lastLongitude int
+	for _, location := range locations {
+		if location.ChairID != lastChairID {
+			lastChairID = location.ChairID
+			lastLatitude = location.Latitude
+			lastLongitude = location.Longitude
+			continue
+		}
+		distance := abs(location.Latitude-lastLatitude) + abs(location.Longitude-lastLongitude)
+		if _, err := db.ExecContext(ctx, "UPDATE chair_locations SET distance = ? WHERE id = ?", distance, location.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		lastLatitude = location.Latitude
+		lastLongitude = location.Longitude
+	}
+
 	writeJSON(w, http.StatusOK, postInitializeResponse{Language: "go"})
 }
 
