@@ -346,10 +346,11 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stsId := ulid.Make().String()
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO ride_statuses (id, ride_id, status) VALUES (?, ?, ?)`,
-		ulid.Make().String(), rideID, "MATCHING",
+		stsId, rideID, "MATCHING",
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -420,6 +421,8 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+
+	sendLatestRideStatusForRide(ctx, tx, &ride, "MATCHING")
 
 	fare, err := calculateDiscountedFare(ctx, tx, user.ID, &ride, req.PickupCoordinate.Latitude, req.PickupCoordinate.Longitude, req.DestinationCoordinate.Latitude, req.DestinationCoordinate.Longitude)
 	if err != nil {
@@ -562,14 +565,16 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rideStsId := ulid.Make().String()
 	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO ride_statuses (id, ride_id, status) VALUES (?, ?, ?)`,
-		ulid.Make().String(), rideID, "COMPLETED")
+		rideStsId, rideID, "COMPLETED")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	sendLatestRideStatusForRide(ctx, tx, ride, "COMPLETED")
 
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE id = ?`, rideID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
