@@ -128,7 +128,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lastLocation := &ChairLocation{}
-	if err := tx.GetContext(ctx, lastLocation, `SELECT * FROM chair_locations WHERE id != ? ORDER BY created_at DESC LIMIT 1`, chairLocationID); err != nil {
+	if err := tx.GetContext(ctx, lastLocation, `SELECT * FROM chair_locations WHERE id != ? AND chair_id = ? ORDER BY created_at DESC LIMIT 1`, chairLocationID, chair.ID); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
