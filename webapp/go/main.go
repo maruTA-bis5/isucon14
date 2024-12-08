@@ -152,6 +152,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	var lastChairID string
 	var lastLatitude, lastLongitude int
+	updateQuery := "UPDATE chair_locations SET distance = ELT(FIELD(id, ?) "
+	updateIds := make([]string, 0, len(locations))
 	for _, location := range locations {
 		if location.ChairID != lastChairID {
 			lastChairID = location.ChairID
@@ -160,12 +162,21 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		distance := abs(location.Latitude-lastLatitude) + abs(location.Longitude-lastLongitude)
-		if _, err := db.ExecContext(ctx, "UPDATE chair_locations SET distance = ? WHERE id = ?", distance, location.ID); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
+		updateQuery += fmt.Sprintf(", %d", distance)
+		updateIds = append(updateIds, location.ID)
+
 		lastLatitude = location.Latitude
 		lastLongitude = location.Longitude
+	}
+	updateQuery += ")"
+	inQuery, params, err := sqlx.In(updateQuery, updateIds)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if _, err := db.ExecContext(ctx, inQuery, params...); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
 	}
 
 	writeJSON(w, http.StatusOK, postInitializeResponse{Language: "go"})
