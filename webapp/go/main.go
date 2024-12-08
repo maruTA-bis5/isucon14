@@ -138,7 +138,42 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := db.ExecContext(ctx, "UPDATE chair_locations SET distance = 0 WHERE distance IS NULL"); err != nil {
+	if _, err := db.ExecContext(ctx, "ALTER TABLE chair_locations ADD COLUMN distance INTEGER DEFAULT 0"); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	locations := []*ChairLocation{}
+	if err := db.SelectContext(ctx, &locations, "SELECT * FROM chair_locations ORDER BY chair_id, created_at"); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	var lastChairID string
+	var lastLatitude, lastLongitude int
+	updateQuery := "UPDATE chair_locations SET distance = ELT(FIELD(id, ?) "
+	updateIds := make([]string, 0, len(locations))
+	for _, location := range locations {
+		if location.ChairID != lastChairID {
+			lastChairID = location.ChairID
+			lastLatitude = location.Latitude
+			lastLongitude = location.Longitude
+			continue
+		}
+		distance := abs(location.Latitude-lastLatitude) + abs(location.Longitude-lastLongitude)
+		updateQuery += fmt.Sprintf(", %d", distance)
+		updateIds = append(updateIds, location.ID)
+
+		lastLatitude = location.Latitude
+		lastLongitude = location.Longitude
+	}
+	updateQuery += ")"
+	inQuery, params, err := sqlx.In(updateQuery, updateIds)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if _, err := db.ExecContext(ctx, inQuery, params...); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
