@@ -49,7 +49,7 @@ CREATE TABLE chair_locations
   COMMENT = '椅子の現在位置情報テーブル';
 
 DROP TABLE IF EXISTS chair_distances;
-CREATE TABLE chair_disntances 
+CREATE TABLE chair_distances 
 (
   chair_id   VARCHAR(26) NOT NULL COMMENT '椅子ID',
   total_distance INTEGER     NOT NULL COMMENT '総移動距離',
