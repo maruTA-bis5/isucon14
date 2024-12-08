@@ -48,6 +48,7 @@ func internalGetMatching(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	sendLatestRideStatusForRide(ctx, db, ride, "MATCHING")
 
 	w.WriteHeader(http.StatusNoContent)
 }
