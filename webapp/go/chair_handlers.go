@@ -150,7 +150,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
-				sendLatestRideStatusForRide(ctx, tx, ride, "PICKUP")
+				sendLatestRideStatusForRide(ctx, db, ride, "PICKUP")
 			}
 
 			if req.Latitude == ride.DestinationLatitude && req.Longitude == ride.DestinationLongitude && status == "CARRYING" {
@@ -158,7 +158,7 @@ func chairPostCoordinate(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
-				sendLatestRideStatusForRide(ctx, tx, ride, "ARRIVED")
+				sendLatestRideStatusForRide(ctx, db, ride, "ARRIVED")
 			}
 		}
 	}
@@ -257,9 +257,9 @@ type userToNotify struct {
 	Lastname  string `db:"lastname"`
 }
 
-func sendLatestRideStatusForRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, status string) {
+func sendLatestRideStatusForRide(ctx context.Context, db *sqlx.DB, ride *Ride, status string) {
 	user := &User{}
-	if err := tx.GetContext(ctx, user, "SELECT * FROM users WHERE id = ?", ride.UserID); err != nil {
+	if err := db.GetContext(ctx, user, "SELECT * FROM users WHERE id = ?", ride.UserID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return
 		}
@@ -296,7 +296,7 @@ func sendLatestRideStatusForChair(chair *Chair) {
 		return
 	}
 
-	sendLatestRideStatusForRide(ctx, tx, ride, status)
+	sendLatestRideStatusForRide(ctx, db, ride, status)
 }
 func sendLatestRideStatus(user *User, ride *Ride, status string) {
 	if !ride.ChairID.Valid {
@@ -441,7 +441,7 @@ func chairPostRideStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		sendLatestRideStatusForRide(ctx, tx, ride, req.Status)
+		sendLatestRideStatusForRide(ctx, db, ride, req.Status)
 	// After Picking up user
 	case "CARRYING":
 		status, err := getLatestRideStatus(ctx, tx, ride.ID)
@@ -457,7 +457,7 @@ func chairPostRideStatus(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		sendLatestRideStatusForRide(ctx, tx, ride, req.Status)
+		sendLatestRideStatusForRide(ctx, db, ride, req.Status)
 	default:
 		writeError(w, http.StatusBadRequest, errors.New("invalid status"))
 	}

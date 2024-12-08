@@ -433,7 +433,7 @@ func appPostRides(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx, _ = db.Beginx()
-	sendLatestRideStatusForRide(ctx, tx, &ride, "MATCHING")
+	sendLatestRideStatusForRide(ctx, db, &ride, "MATCHING")
 
 	writeJSON(w, http.StatusAccepted, &appPostRidesResponse{
 		RideID: rideID,
@@ -574,7 +574,7 @@ func appPostRideEvaluatation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	sendLatestRideStatusForRide(ctx, tx, ride, "COMPLETED")
+	sendLatestRideStatusForRide(ctx, db, ride, "COMPLETED")
 
 	if err := tx.GetContext(ctx, ride, `SELECT * FROM rides WHERE id = ?`, rideID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
