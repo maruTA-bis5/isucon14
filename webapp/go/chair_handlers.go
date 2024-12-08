@@ -263,7 +263,7 @@ type userToNotify struct {
 
 func sendLatestRideStatusForRide(ctx context.Context, tx *sqlx.Tx, ride *Ride, status string) {
 	user := &User{}
-	if err := tx.GetContext(ctx, "SELECT id, firstname, lastname FROM users WHERE id = ?", ride.UserID); err != nil {
+	if err := tx.GetContext(ctx, "SELECT * FROM users WHERE id = ?", ride.UserID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return
 		}
