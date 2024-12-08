@@ -13,6 +13,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oklog/ulid/v2"
+	"github.com/r3labs/sse/v2"
 )
 
 type chairPostChairsRequest struct {
@@ -192,7 +193,8 @@ type chairGetNotificationResponseData struct {
 	Status                string     `json:"status"`
 }
 
-var sseServers = make(map[string]func(string))
+// var sseServers = make(map[string]func(string))
+var sseServers = make(map[string]*sse.Server)
 var sseMutex sync.RWMutex
 
 func startNotificationLoopForChairs() {
@@ -279,7 +281,7 @@ func startNotificationLoopForChairs() {
 					if user == nil {
 						continue
 					}
-					sendChairRideStatusEvent(rideByID[status.RideID], user, status.Status, sseServers[rideByID[status.RideID].ChairID.String])
+					sendChairRideStatusEvent(rideByID[status.RideID], user, status.Status, rideByID[status.RideID].ChairID.String)
 				}
 			}
 			sseMutex.RUnlock()
@@ -312,15 +314,16 @@ func chairGetNotification(w http.ResponseWriter, r *http.Request) {
 	sseMutex.Lock()
 	defer sseMutex.Unlock()
 	// クライアントへのメッセージ送信関数
-	sendMessage := func(data string) {
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		// 即時に送信するためにフラッシュ
-		flusher, ok := w.(http.Flusher)
-		if ok {
-			flusher.Flush()
-		}
-	}
-	sseServers[chair.ID] = sendMessage
+	// sendMessage := func(data string) {
+	// 	fmt.Fprintf(w, "data: %s\n\n", data)
+	// 	// 即時に送信するためにフラッシュ
+	// 	flusher, ok := w.(http.Flusher)
+	// 	if ok {
+	// 		flusher.Flush()
+	// 	}
+	// }
+	sseServers[chair.ID] = sse.New()
+	sseServers[chair.ID].CreateStream("")
 	// sendLatestRideStatusForChair(chair)
 
 	// // 定期的にデータを送信
@@ -375,7 +378,9 @@ func sendLatestRideStatusForChair(chair *Chair) {
 		if errors.Is(err, sql.ErrNoRows) {
 			sseMutex.Lock()
 			defer sseMutex.Unlock()
-			sseServers[chair.ID]("data: null\n\n")
+			sseServers[chair.ID].Publish("", &sse.Event{
+				Data: []byte("null"),
+			})
 			return
 		}
 		slog.Error("Error", err)
@@ -483,11 +488,15 @@ func sendLatestRideStatus(user *User, ride *Ride, status string) {
 		}
 		sseMutex.RLock()
 		defer sseMutex.RUnlock()
-		sseServers[ride.ChairID.String](fmt.Sprintf("data: %s\n\n", string(payload)))
+		sseServers[ride.ChairID.String].Publish("", &sse.Event{
+			Data: payload,
+		})
 	}()
 }
 
-func sendChairRideStatusEvent(ride *Ride, user *User, status string, sseServer func(string)) {
+func sendChairRideStatusEvent(ride *Ride, user *User, status string, chairID string) {
+	sseMutex.RLock()
+	defer sseMutex.RUnlock()
 	payload, err := json.Marshal(
 		&chairGetNotificationResponseData{
 			RideID: ride.ID,
@@ -510,7 +519,9 @@ func sendChairRideStatusEvent(ride *Ride, user *User, status string, sseServer f
 		slog.Error("Error", err)
 		return
 	}
-	sseServer(fmt.Sprintf("data: %s\n\n", string(payload)))
+	sseServers[chairID].Publish("", &sse.Event{
+		Data: []byte(fmt.Sprintf("data: %s\n\n", string(payload))),
+	})
 }
 
 type postChairRidesRideIDStatusRequest struct {

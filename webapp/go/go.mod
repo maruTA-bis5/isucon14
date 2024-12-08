@@ -9,4 +9,12 @@ require (
 	github.com/oklog/ulid/v2 v2.1.0
 )
 
-require filippo.io/edwards25519 v1.1.0 // indirect
+require (
+	golang.org/x/net v0.0.0-20191116160921-f9c825593386 // indirect
+	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
+)
+
+require (
+	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/r3labs/sse/v2 v2.10.0
+)
